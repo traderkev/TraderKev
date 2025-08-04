@@ -1892,23 +1892,6 @@ const TraderKevWebsite = () => {
                     </a>
                   </div>
 
-                  <div className="flex flex-col items-center justify-center space-y-4 mb-8">
-                    <button
-                      onClick={() => {
-                        setShowSignupForm(true);
-                        setCurrentPage('login');
-                      }}
-                      className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white px-12 py-5 rounded-xl text-xl font-bold transition-all transform hover:scale-105 flex items-center space-x-3 shadow-2xl focus:outline-none focus:ring-2 focus:ring-green-300 animate-pulse"
-                    >
-                      <User size={28} />
-                      <span>Get Free Access - Start Today</span>
-                    </button>
-
-                    <p className="text-sm opacity-75 max-w-md text-center">
-                      Join over 5,000+ traders who have gained access to exclusive content and mentoring
-                    </p>
-                  </div>
-
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-3xl mx-auto">
                     <div className="bg-white bg-opacity-10 backdrop-blur-sm rounded-lg p-6 text-center transform hover:scale-105 transition-transform duration-200">
                       <Trophy className="h-12 w-12 text-yellow-400 mx-auto mb-4" />
@@ -2125,6 +2108,26 @@ const TraderKevWebsite = () => {
                         </p>
                       </div>
                     ))}
+                  </div>
+
+                  {/* Call-to-Action after testimonials */}
+                  <div className="mt-16 text-center">
+                    <h3 className="text-2xl md:text-3xl font-bold text-gray-800 mb-4">
+                      Ready to Transform Your Trading?
+                    </h3>
+                    <p className="text-lg text-gray-600 mb-8 max-w-2xl mx-auto">
+                      Join over 5,000+ traders who have gained access to exclusive content and mentoring
+                    </p>
+                    <button
+                      onClick={() => {
+                        setShowSignupForm(true);
+                        setCurrentPage('login');
+                      }}
+                      className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white px-12 py-5 rounded-xl text-xl font-bold transition-all transform hover:scale-105 flex items-center space-x-3 shadow-2xl focus:outline-none focus:ring-2 focus:ring-green-300 mx-auto"
+                    >
+                      <User size={28} />
+                      <span>Get Free Access - Start Today</span>
+                    </button>
                   </div>
                 </div>
               </div>
