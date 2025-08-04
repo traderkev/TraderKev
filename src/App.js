@@ -30,6 +30,9 @@ import {
   BookOpen,
   Search
 } from 'lucide-react';
+import { useAuth } from './useAuth';
+import { PasswordResetModal } from './PasswordResetModal';
+import { EmailVerificationBanner } from './EmailVerificationBanner';
 
 // Missing Components - Adding all referenced components
 const MobileMenu = () => {
@@ -181,59 +184,463 @@ const PayoutsBanner = () => {
   );
 };
 
-const LoginComponent = ({ onLoginSuccess }) => {
+const LoginComponent = ({ onLoginSuccess, initialSignUpMode = false }) => {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isSignUp, setIsSignUp] = useState(initialSignUpMode);
+  const [localLoading, setLocalLoading] = useState(false);
+  const [showPasswordReset, setShowPasswordReset] = useState(false);
+  
+  // Additional signup fields
+  const [firstName, setFirstName] = useState('');
+  const [lastName, setLastName] = useState('');
+  const [username, setUsername] = useState('');
+  const [phone, setPhone] = useState('');
+  const [street, setStreet] = useState('');
+  const [city, setCity] = useState('');
+  const [state, setState] = useState('');
+  const [zipCode, setZipCode] = useState('');
+  const [country, setCountry] = useState('');
+  const [dateOfBirth, setDateOfBirth] = useState('');
+  const [tradingExperience, setTradingExperience] = useState('');
+  const [riskTolerance, setRiskTolerance] = useState('');
+  
+  const { signInWithEmail, signUpWithEmail, signInWithGoogle, error } = useAuth();
 
-  const handleSubmit = (e) => {
+  // Update isSignUp when initialSignUpMode changes
+  useEffect(() => {
+    setIsSignUp(initialSignUpMode);
+  }, [initialSignUpMode]);
+
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    // Simulate login
-    onLoginSuccess();
+    setLocalLoading(true);
+    
+    try {
+      if (isSignUp) {
+        // Validate password confirmation
+        if (password !== confirmPassword) {
+          throw new Error('Passwords do not match');
+        }
+        
+        // Validate required fields
+        if (!firstName || !lastName || !username) {
+          throw new Error('Please fill in all required fields (First Name, Last Name, Username)');
+        }
+        
+        const userProfile = {
+          firstName,
+          lastName,
+          username,
+          phone,
+          street,
+          city,
+          state,
+          zipCode,
+          country,
+          dateOfBirth,
+          tradingExperience,
+          riskTolerance
+        };
+        
+        const user = await signUpWithEmail(email, password, userProfile);
+        // Show success message about email verification
+        alert('Account created successfully! Please check your email for a verification link.');
+        onLoginSuccess();
+      } else {
+        await signInWithEmail(email, password);
+        onLoginSuccess();
+      }
+    } catch (err) {
+      console.error('Authentication error:', err);
+      alert(err.message || 'An error occurred during authentication');
+    } finally {
+      setLocalLoading(false);
+    }
   };
 
+  const handleGoogleSignIn = async () => {
+    setLocalLoading(true);
+    try {
+      await signInWithGoogle();
+      onLoginSuccess();
+    } catch (err) {
+      console.error('Google sign-in error:', err);
+    } finally {
+      setLocalLoading(false);
+    }
+  };
+
+  if (showPasswordReset) {
+    return (
+      <PasswordResetModal
+        onClose={() => setShowPasswordReset(false)}
+        onBackToLogin={() => setShowPasswordReset(false)}
+      />
+    );
+  }
+
   return (
-    <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-      <div className="max-w-md w-full bg-white rounded-lg shadow-md p-6">
-        <h2 className="text-2xl font-bold text-center mb-6">Login to Video Library</h2>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
-            <input
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
+      <div className="max-w-2xl w-full bg-white rounded-lg shadow-md p-8">
+        <h2 className="text-3xl font-bold text-center mb-8">
+          {isSignUp ? 'Create Your TraderKev Account' : 'Login to Video Library'}
+        </h2>
+        
+        {error && (
+          <div className="mb-6 p-4 bg-red-100 border border-red-400 text-red-700 rounded-lg">
+            {error}
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Password</label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
-              required
-            />
+        )}
+
+        <form onSubmit={handleSubmit} className="space-y-6">
+          {isSignUp && (
+            <>
+              {/* Personal Information Section */}
+              <div className="bg-blue-50 p-6 rounded-lg">
+                <h3 className="text-lg font-semibold text-blue-800 mb-4">Personal Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      First Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={firstName}
+                      onChange={(e) => setFirstName(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                      disabled={localLoading}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Last Name <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={lastName}
+                      onChange={(e) => setLastName(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                      disabled={localLoading}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">
+                      Username <span className="text-red-500">*</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      required
+                      disabled={localLoading}
+                      placeholder="Choose a unique username"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Phone Number</label>
+                    <input
+                      type="tel"
+                      value={phone}
+                      onChange={(e) => setPhone(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={localLoading}
+                      placeholder="+1 (555) 123-4567"
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Date of Birth</label>
+                    <input
+                      type="date"
+                      value={dateOfBirth}
+                      onChange={(e) => setDateOfBirth(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={localLoading}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Address Information Section */}
+              <div className="bg-green-50 p-6 rounded-lg">
+                <h3 className="text-lg font-semibold text-green-800 mb-4">Address Information</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="md:col-span-2">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Street Address</label>
+                    <input
+                      type="text"
+                      value={street}
+                      onChange={(e) => setStreet(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={localLoading}
+                      placeholder="123 Main Street"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">City</label>
+                    <input
+                      type="text"
+                      value={city}
+                      onChange={(e) => setCity(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={localLoading}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">State/Province</label>
+                    <input
+                      type="text"
+                      value={state}
+                      onChange={(e) => setState(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={localLoading}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">ZIP/Postal Code</label>
+                    <input
+                      type="text"
+                      value={zipCode}
+                      onChange={(e) => setZipCode(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={localLoading}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Country</label>
+                    <select
+                      value={country}
+                      onChange={(e) => setCountry(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={localLoading}
+                    >
+                      <option value="">Select Country</option>
+                      <option value="US">United States</option>
+                      <option value="CA">Canada</option>
+                      <option value="UK">United Kingdom</option>
+                      <option value="AU">Australia</option>
+                      <option value="DE">Germany</option>
+                      <option value="FR">France</option>
+                      <option value="OTHER">Other</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* Trading Information Section */}
+              <div className="bg-purple-50 p-6 rounded-lg">
+                <h3 className="text-lg font-semibold text-purple-800 mb-4">Trading Experience</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Trading Experience Level</label>
+                    <select
+                      value={tradingExperience}
+                      onChange={(e) => setTradingExperience(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={localLoading}
+                    >
+                      <option value="">Select Experience Level</option>
+                      <option value="beginner">Beginner (0-1 years)</option>
+                      <option value="intermediate">Intermediate (1-3 years)</option>
+                      <option value="advanced">Advanced (3-5 years)</option>
+                      <option value="expert">Expert (5+ years)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Risk Tolerance</label>
+                    <select
+                      value={riskTolerance}
+                      onChange={(e) => setRiskTolerance(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={localLoading}
+                    >
+                      <option value="">Select Risk Tolerance</option>
+                      <option value="conservative">Conservative</option>
+                      <option value="moderate">Moderate</option>
+                      <option value="aggressive">Aggressive</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Account Credentials Section */}
+          <div className="bg-gray-50 p-6 rounded-lg">
+            <h3 className="text-lg font-semibold text-gray-800 mb-4">
+              {isSignUp ? 'Account Credentials' : 'Login Credentials'}
+            </h3>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Email Address <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                  disabled={localLoading}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Password <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  required
+                  disabled={localLoading}
+                  minLength={6}
+                />
+                {isSignUp && (
+                  <p className="text-xs text-gray-500 mt-1">Password must be at least 6 characters long</p>
+                )}
+              </div>
+              {isSignUp && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Confirm Password <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="password"
+                    value={confirmPassword}
+                    onChange={(e) => setConfirmPassword(e.target.value)}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    required
+                    disabled={localLoading}
+                    minLength={6}
+                  />
+                </div>
+              )}
+            </div>
           </div>
+          
+          {!isSignUp && (
+            <div className="text-right">
+              <button
+                type="button"
+                onClick={() => setShowPasswordReset(true)}
+                className="text-sm text-blue-600 hover:text-blue-500"
+                disabled={localLoading}
+              >
+                Forgot password?
+              </button>
+            </div>
+          )}
+          
           <button
             type="submit"
-            className="w-full bg-blue-600 text-white py-2 px-4 rounded-md hover:bg-blue-700 transition-colors"
+            disabled={localLoading}
+            className="w-full bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed font-semibold text-lg"
           >
-            Login
+            {localLoading ? 'Processing...' : (isSignUp ? 'Create Account' : 'Login')}
           </button>
         </form>
+
+        <div className="mt-6">
+          <div className="relative">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-gray-300" />
+            </div>
+            <div className="relative flex justify-center text-sm">
+              <span className="px-2 bg-white text-gray-500">Or continue with</span>
+            </div>
+          </div>
+
+          <button
+            onClick={handleGoogleSignIn}
+            disabled={localLoading}
+            className="mt-3 w-full flex justify-center items-center px-4 py-3 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <svg className="w-5 h-5 mr-2" viewBox="0 0 24 24">
+              <path fill="currentColor" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="currentColor" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="currentColor" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+              <path fill="currentColor" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            {isSignUp ? 'Sign up with Google' : 'Sign in with Google'}
+          </button>
+        </div>
+
+        <div className="mt-8 text-center">
+          <button
+            onClick={() => setIsSignUp(!isSignUp)}
+            className={`text-sm font-medium ${isSignUp ? 'text-blue-600 hover:text-blue-500' : 'text-green-600 hover:text-green-500'}`}
+            disabled={localLoading}
+          >
+            {isSignUp ? 'Already have an account? Sign in' : "Don't have an account? Create one now!"}
+          </button>
+        </div>
+
+        {!isSignUp && (
+          <div className="mt-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+            <div className="text-center">
+              <h4 className="text-sm font-semibold text-green-800 mb-2">New to TraderKev?</h4>
+              <p className="text-xs text-green-700 mb-3">Join thousands of successful traders and get access to:</p>
+              <ul className="text-xs text-green-700 space-y-1 mb-3">
+                <li>• Exclusive video library</li>
+                <li>• Live trading sessions</li>
+                <li>• 1-on-1 mentoring</li>
+                <li>• Discord community</li>
+              </ul>
+              <button
+                onClick={() => setIsSignUp(true)}
+                className="w-full bg-green-600 text-white py-2 px-4 rounded-md hover:bg-green-700 transition-colors text-sm font-medium"
+                disabled={localLoading}
+              >
+                Create Free Account
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isSignUp && (
+          <div className="mt-6 p-4 bg-blue-50 border border-blue-200 rounded-lg">
+            <div className="text-center">
+              <h4 className="text-sm font-semibold text-blue-800 mb-2">🚀 Ready to Join TraderKev?</h4>
+              <p className="text-xs text-blue-700 mb-2">By creating an account, you'll get instant access to our community and resources. We'll never share your personal information.</p>
+              <p className="text-xs text-gray-600">
+                <span className="text-red-500">*</span> Required fields
+              </p>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
 const VideoLibraryComponent = ({ onLogout }) => {
+  const { user } = useAuth();
+  const [showVerificationBanner, setShowVerificationBanner] = useState(true);
+  
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white shadow-sm">
         <div className="container mx-auto px-4 py-4 flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-blue-600">TraderKev Video Library</h1>
+          <div>
+            <h1 className="text-2xl font-bold text-blue-600">TraderKev Video Library</h1>
+            {user && (
+              <div className="flex items-center space-x-2">
+                <p className="text-sm text-gray-600">Welcome, {user.email}</p>
+                {user.emailVerified && (
+                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    <CheckCircle size={12} className="mr-1" />
+                    Verified
+                  </span>
+                )}
+              </div>
+            )}
+          </div>
           <button
             onClick={onLogout}
             className="flex items-center space-x-2 text-gray-600 hover:text-gray-800"
@@ -244,7 +651,15 @@ const VideoLibraryComponent = ({ onLogout }) => {
         </div>
       </header>
 
-      <div className="container mx-auto px-4 py-8">
+      <div className="container mx-auto px-4 py-4">
+        {/* Email Verification Banner */}
+        {user && !user.emailVerified && showVerificationBanner && (
+          <EmailVerificationBanner 
+            user={user} 
+            onDismiss={() => setShowVerificationBanner(false)}
+          />
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {[1, 2, 3, 4, 5, 6].map((video) => (
             <div key={video} className="bg-white rounded-lg shadow-md overflow-hidden">
@@ -267,6 +682,9 @@ const VideoLibraryComponent = ({ onLogout }) => {
 };
 
 const TraderKevWebsite = () => {
+  // Firebase Authentication Hook
+  const { user, loading, logout } = useAuth();
+  
   // State variables for controlling UI elements and their behavior
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false); // This will now control the Login PAGE, not a modal
@@ -295,8 +713,11 @@ const TraderKevWebsite = () => {
 
   // New state for handling page routing (landing, login, videoLibrary)
   const [currentPage, setCurrentPage] = useState('landing');
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [showOnboardingMessage, setShowOnboardingMessage] = useState(true); // For guided onboarding
+  const [showSignupForm, setShowSignupForm] = useState(false); // To control whether to show signup or login form
+
+  // Authentication state derived from Firebase
+  const isLoggedIn = !!user;
 
   // Refs for managing focus, crucial for accessibility (A11y) in modals and scroll animations
   const loginModalRef = useRef(null); // Still used for the LoginComponent's initial focus
@@ -684,125 +1105,6 @@ const TraderKevWebsite = () => {
     setReminderSetMessage(true);
     setTimeout(() => setReminderSetMessage(false), 3000);
   }, []);
-
-  // LoginComponent: The full login page
-  const LoginComponent = ({ onLoginSuccess }) => {
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [errors, setErrors] = useState({});
-    const [isLoading, setIsLoading] = useState(false);
-    const loginPageRef = useRef(null);
-
-    useEffect(() => {
-      if (loginPageRef.current) {
-        const firstInput = loginPageRef.current.querySelector('input');
-        if (firstInput) {
-          firstInput.focus();
-        }
-      }
-    }, []);
-
-    const validateForm = () => {
-      let newErrors = {};
-      if (!email) {
-        newErrors.email = 'Email is required.';
-      } else if (!/\S+@\S+\.\S+/.test(email)) {
-        newErrors.email = 'Email address is invalid.';
-      }
-      if (!password) {
-        newErrors.password = 'Password is required.';
-      } else if (password.length < 6) {
-        newErrors.password = 'Password must be at least 6 characters.';
-      }
-      setErrors(newErrors);
-      return Object.keys(newErrors).length === 0;
-    };
-
-    const handleSubmit = async (e) => {
-      e.preventDefault();
-      if (validateForm()) {
-        setIsLoading(true);
-        await new Promise(resolve => setTimeout(resolve, 1500));
-        setIsLoading(false);
-
-        if (email === 'user@example.com' && password === 'password123') {
-          onLoginSuccess();
-        } else {
-          setErrors({ general: 'Invalid email or password.' });
-        }
-      }
-    };
-
-    return (
-      <div ref={loginPageRef} className="min-h-screen flex items-center justify-center bg-gray-50 py-12 px-4 sm:px-6 lg:px-8">
-        <div className="max-w-md w-full space-y-8 bg-white p-10 rounded-xl shadow-2xl">
-          <div>
-            <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
-              Client Login
-            </h2>
-            <p className="mt-2 text-center text-sm text-gray-600">
-              Sign in to access your exclusive trading content.
-            </p>
-          </div>
-          <form className="mt-8 space-y-6" onSubmit={handleSubmit}>
-            <div className="rounded-md shadow-sm -space-y-px">
-              <div>
-                <label htmlFor="email-address" className="sr-only">Email address</label>
-                <input
-                  id="email-address"
-                  name="email"
-                  type="email"
-                  autoComplete="email"
-                  required
-                  className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${errors.email ? 'border-red-500' : 'border-gray-300'} placeholder-gray-500 text-gray-900 rounded-t-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:text-sm`}
-                  placeholder="Email address"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                />
-                {errors.email && <p className="text-red-500 text-xs mt-1">{errors.email}</p>}
-              </div>
-              <div>
-                <label htmlFor="password" className="sr-only">Password</label>
-                <input
-                  id="password"
-                  name="password"
-                  type="password"
-                  autoComplete="current-password"
-                  required
-                  className={`appearance-none rounded-none relative block w-full px-3 py-2 border ${errors.password ? 'border-red-500' : 'border-gray-300'} placeholder-gray-500 text-gray-900 rounded-b-md focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 sm:text-sm`}
-                  placeholder="Password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-                {errors.password && <p className="text-red-500 text-xs mt-1">{errors.password}</p>}
-              </div>
-            </div>
-
-            {errors.general && (
-              <p className="text-red-500 text-sm text-center">{errors.general}</p>
-            )}
-
-            <div>
-              <button
-                type="submit"
-                className="group relative w-full flex justify-center py-2 px-4 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                disabled={isLoading}
-              >
-                {isLoading ? (
-                  <svg className="animate-spin h-5 w-5 text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
-                  </svg>
-                ) : (
-                  'Sign in'
-                )}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    );
-  };
 
   // VideoLibraryComponent: The client's private video content area
   const VideoLibraryComponent = ({ onLogout }) => {
@@ -1450,11 +1752,40 @@ const TraderKevWebsite = () => {
 
   // Main render logic based on currentPage
   const renderContent = () => {
+    // Show loading spinner while Firebase is determining auth state
+    if (loading) {
+      return (
+        <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
+            <p className="mt-4 text-gray-600">Loading...</p>
+          </div>
+        </div>
+      );
+    }
+
     switch (currentPage) {
       case 'login':
-        return <LoginComponent onLoginSuccess={() => { setIsLoggedIn(true); setCurrentPage('videoLibrary'); setShowOnboardingMessage(true); }} />;
+        return <LoginComponent 
+          onLoginSuccess={() => { setCurrentPage('videoLibrary'); setShowOnboardingMessage(true); }} 
+          initialSignUpMode={showSignupForm}
+        />;
       case 'videoLibrary':
-        return <VideoLibraryComponent onLogout={() => { setIsLoggedIn(false); setCurrentPage('landing'); setShowOnboardingMessage(false); }} />;
+        // Only allow access to video library if user is authenticated
+        if (isLoggedIn) {
+          return <VideoLibraryComponent onLogout={async () => { 
+            await logout(); 
+            setCurrentPage('landing'); 
+            setShowOnboardingMessage(false); 
+          }} />;
+        } else {
+          // Redirect to login if not authenticated
+          setCurrentPage('login');
+          return <LoginComponent 
+            onLoginSuccess={() => { setCurrentPage('videoLibrary'); setShowOnboardingMessage(true); }} 
+            initialSignUpMode={showSignupForm}
+          />;
+        }
       case 'landing':
       default:
         return (
@@ -1492,21 +1823,38 @@ const TraderKevWebsite = () => {
                     <a href="#contact" className={`hover:text-blue-600 transition-colors transform hover:-translate-y-0.5 ${activeSection === 'contact' ? 'font-bold text-blue-600' : 'text-gray-700'}`}>Contact</a>
                     {isLoggedIn ? (
                       <button
-                        onClick={() => { setIsLoggedIn(false); setCurrentPage('landing'); }}
+                        onClick={async () => { 
+                          await logout(); 
+                          setCurrentPage('landing'); 
+                        }}
                         className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center space-x-2 focus:outline-none focus:ring-2 focus:ring-red-500"
                       >
                         <LogOut size={20} />
                         <span>Logout</span>
                       </button>
                     ) : (
-                      <button
-                        onClick={() => setCurrentPage('login')}
-                        className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        ref={loginButtonRef}
-                      >
-                        <User size={20} />
-                        <span>Client Login</span>
-                      </button>
+                      <div className="flex items-center space-x-3">
+                        <button
+                          onClick={() => {
+                            setShowSignupForm(true);
+                            setCurrentPage('login');
+                          }}
+                          className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm font-medium focus:outline-none focus:ring-2 focus:ring-green-500"
+                        >
+                          Create Account
+                        </button>
+                        <button
+                          onClick={() => {
+                            setShowSignupForm(false);
+                            setCurrentPage('login');
+                          }}
+                          className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          ref={loginButtonRef}
+                        >
+                          <User size={20} />
+                          <span>Login</span>
+                        </button>
+                      </div>
                     )}
                   </div>
 
@@ -1532,7 +1880,7 @@ const TraderKevWebsite = () => {
                     Get Funded by Top Prop Firms with Expert Training & 1-on-1 Mentoring
                   </p>
 
-                  <div className="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-6 mb-12 animate-fade-in-up" style={{ animationDelay: '0.5s' }}>
+                  <div className="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-6 mb-8 animate-fade-in-up" style={{ animationDelay: '0.5s' }}>
                     <a href="#live-trading" className="bg-red-600 hover:bg-red-700 text-white px-8 py-4 rounded-lg text-lg font-semibold transition-all transform hover:scale-105 flex items-center space-x-3 shadow-lg focus:outline-none focus:ring-2 focus:ring-red-300">
                       <Play size={24} />
                       <span>Live Trading - Daily 9:30 AM</span>
@@ -1542,6 +1890,23 @@ const TraderKevWebsite = () => {
                       <Users size={24} />
                       <span>Join Discord Community</span>
                     </a>
+                  </div>
+
+                  <div className="flex flex-col items-center justify-center space-y-4 mb-8">
+                    <button
+                      onClick={() => {
+                        setShowSignupForm(true);
+                        setCurrentPage('login');
+                      }}
+                      className="bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white px-12 py-5 rounded-xl text-xl font-bold transition-all transform hover:scale-105 flex items-center space-x-3 shadow-2xl focus:outline-none focus:ring-2 focus:ring-green-300 animate-pulse"
+                    >
+                      <User size={28} />
+                      <span>Get Free Access - Start Today</span>
+                    </button>
+
+                    <p className="text-sm opacity-75 max-w-md text-center">
+                      Join over 5,000+ traders who have gained access to exclusive content and mentoring
+                    </p>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-3xl mx-auto">
