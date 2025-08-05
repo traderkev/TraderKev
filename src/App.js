@@ -182,10 +182,10 @@ const PaymentForm = ({ onSuccess, onError, onClose, customerInfo }) => {
       };
 
       await emailjs.send(
-        'service_sbwdmq9',
-        'template_fxxzwsa', // You'll need a payment confirmation template
+        process.env.REACT_APP_EMAILJS_SERVICE_ID || 'service_sbwdmq9',
+        process.env.REACT_APP_EMAILJS_TEMPLATE_ID || 'template_fxxzwsa',
         templateParams,
-        'VigwdRl-HGU8A34Rg'
+        process.env.REACT_APP_EMAILJS_PUBLIC_KEY || 'VigwdRl-HGU8A34Rg'
       );
     } catch (error) {
       console.error('Error sending confirmation email:', error);
@@ -3448,10 +3448,10 @@ const TraderKevWebsite = () => {
                             }
 
                             try {
-                                // Simple EmailJS implementation with direct values
-                                const serviceID = 'service_sbwdmq9';
-                                const templateID = 'template_fxxzwsa';
-                                const publicKey = 'VigwdRl-HGU8A34Rg';
+                                // Simple EmailJS implementation with environment variables
+                                const serviceID = process.env.REACT_APP_EMAILJS_SERVICE_ID || 'service_sbwdmq9';
+                                const templateID = process.env.REACT_APP_EMAILJS_TEMPLATE_ID || 'template_fxxzwsa';
+                                const publicKey = process.env.REACT_APP_EMAILJS_PUBLIC_KEY || 'VigwdRl-HGU8A34Rg';
 
                                 console.log('Starting EmailJS send with config:', { serviceID, templateID });
 
