@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion } from 'framer-motion';
 import {
   Play,
   Users,
@@ -28,11 +29,22 @@ import {
   LogOut,
   Video,
   BookOpen,
-  Search
+  Search,
+  Phone,
+  MapPin,
+  Mail
 } from 'lucide-react';
 import { useAuth } from './useAuth';
 import { PasswordResetModal } from './PasswordResetModal';
 import { EmailVerificationBanner } from './EmailVerificationBanner';
+import emailjs from '@emailjs/browser';
+import { loadStripe } from '@stripe/stripe-js';
+import { Elements, CardElement, useStripe, useElements } from '@stripe/react-stripe-js';
+import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { db } from './firebase';
+
+// Initialize Stripe
+const stripePromise = loadStripe(process.env.REACT_APP_STRIPE_PUBLISHABLE_KEY || 'pk_test_51234567890abcdefghijklmnopqrstuvwxyz');
 
 // Missing Components - Adding all referenced components
 const MobileMenu = () => {
@@ -51,31 +63,6 @@ const MobileMenu = () => {
   );
 };
 
-const CalendarModal = () => {
-  return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
-      <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-        <h3 className="text-xl font-semibold mb-4">Book Your Free Call</h3>
-        <p className="text-gray-600 mb-4">Choose a time that works for you</p>
-        <div className="space-y-3">
-          <button className="w-full p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-            Tomorrow 9:00 AM
-          </button>
-          <button className="w-full p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-            Tomorrow 2:00 PM
-          </button>
-          <button className="w-full p-3 bg-blue-600 text-white rounded-lg hover:bg-blue-700">
-            Friday 10:00 AM
-          </button>
-        </div>
-        <button className="mt-4 w-full p-2 border border-gray-300 rounded-lg hover:bg-gray-50">
-          Cancel
-        </button>
-      </div>
-    </div>
-  );
-};
-
 const BlogPostModal = ({ blogPost, onClose }) => {
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center">
@@ -87,6 +74,236 @@ const BlogPostModal = ({ blogPost, onClose }) => {
           </button>
         </div>
         <div className="prose" dangerouslySetInnerHTML={{ __html: blogPost?.fullContent }}></div>
+      </div>
+    </div>
+  );
+};
+
+// Stripe Payment Form Component
+const PaymentForm = ({ onSuccess, onError, onClose, customerInfo }) => {
+  const stripe = useStripe();
+  const elements = useElements();
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [error, setError] = useState(null);
+  const [customerData, setCustomerData] = useState({
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    ...customerInfo
+  });
+
+  const handleSubmit = async (event) => {
+    event.preventDefault();
+    
+    if (!stripe || !elements) {
+      return;
+    }
+
+    setIsProcessing(true);
+    setError(null);
+
+    const cardElement = elements.getElement(CardElement);
+
+    try {
+      // Create payment method
+      const { error: stripeError, paymentMethod } = await stripe.createPaymentMethod({
+        type: 'card',
+        card: cardElement,
+        billing_details: {
+          name: `${customerData.firstName} ${customerData.lastName}`,
+          email: customerData.email,
+          phone: customerData.phone,
+        },
+      });
+
+      if (stripeError) {
+        setError(stripeError.message);
+        setIsProcessing(false);
+        return;
+      }
+
+      // Simulate payment processing (in real implementation, you'd call your backend)
+      // For demo purposes, we'll assume payment is successful
+      const paymentIntent = {
+        id: 'pi_' + Math.random().toString(36).substr(2, 9),
+        amount: 49700, // $497.00 in cents
+        currency: 'usd',
+        status: 'succeeded'
+      };
+
+      // Save payment record to Firestore
+      const paymentData = {
+        paymentIntentId: paymentIntent.id,
+        amount: paymentIntent.amount,
+        currency: paymentIntent.currency,
+        status: paymentIntent.status,
+        customerInfo: customerData,
+        productInfo: {
+          name: 'TraderKev Mentorship Program',
+          description: 'Professional Trading Education & Mentorship',
+          price: 497
+        },
+        paymentMethodId: paymentMethod.id,
+        createdAt: serverTimestamp(),
+        timestamp: new Date().toISOString()
+      };
+
+      // Add to Firestore
+      const docRef = await addDoc(collection(db, 'payments'), paymentData);
+      console.log('Payment saved to Firestore with ID: ', docRef.id);
+
+      // Send confirmation email
+      await sendConfirmationEmail(customerData, paymentIntent);
+
+      onSuccess({
+        paymentIntent,
+        customer: customerData,
+        firestoreId: docRef.id
+      });
+
+    } catch (error) {
+      console.error('Payment error:', error);
+      setError(error.message || 'An error occurred processing your payment');
+      onError(error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const sendConfirmationEmail = async (customer, payment) => {
+    try {
+      const templateParams = {
+        to_name: `${customer.firstName} ${customer.lastName}`,
+        to_email: customer.email,
+        payment_amount: '$497.00',
+        payment_id: payment.id,
+        course_name: 'TraderKev Mentorship Program'
+      };
+
+      await emailjs.send(
+        'service_sbwdmq9',
+        'template_fxxzwsa', // You'll need a payment confirmation template
+        templateParams,
+        'VigwdRl-HGU8A34Rg'
+      );
+    } catch (error) {
+      console.error('Error sending confirmation email:', error);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black bg-opacity-50 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-lg p-8 max-w-md w-full max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-2xl font-bold text-gray-800">Complete Your Purchase</h3>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-700">
+            <X size={24} />
+          </button>
+        </div>
+
+        <div className="mb-6 p-4 bg-blue-50 rounded-lg">
+          <h4 className="font-semibold text-blue-800">TraderKev Mentorship Program</h4>
+          <p className="text-blue-600">Professional Trading Education & Mentorship</p>
+          <div className="flex justify-between items-center mt-2">
+            <span className="text-2xl font-bold text-blue-800">$497.00</span>
+            <span className="text-sm text-blue-600 line-through">$997.00</span>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">First Name</label>
+              <input
+                type="text"
+                required
+                value={customerData.firstName}
+                onChange={(e) => setCustomerData({...customerData, firstName: e.target.value})}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Last Name</label>
+              <input
+                type="text"
+                required
+                value={customerData.lastName}
+                onChange={(e) => setCustomerData({...customerData, lastName: e.target.value})}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Email</label>
+            <input
+              type="email"
+              required
+              value={customerData.email}
+              onChange={(e) => setCustomerData({...customerData, email: e.target.value})}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+            <input
+              type="tel"
+              required
+              value={customerData.phone}
+              onChange={(e) => setCustomerData({...customerData, phone: e.target.value})}
+              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Card Information</label>
+            <div className="p-3 border border-gray-300 rounded-lg focus-within:ring-2 focus-within:ring-blue-500 focus-within:border-transparent">
+              <CardElement
+                options={{
+                  style: {
+                    base: {
+                      fontSize: '16px',
+                      color: '#424770',
+                      '::placeholder': {
+                        color: '#aab7c4',
+                      },
+                    },
+                  },
+                }}
+              />
+            </div>
+          </div>
+
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
+              <p className="text-red-600 text-sm">{error}</p>
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={!stripe || isProcessing}
+            className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
+          >
+            {isProcessing ? (
+              <>
+                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                Processing...
+              </>
+            ) : (
+              <>
+                <CreditCard className="mr-2" size={16} />
+                Pay $497.00
+              </>
+            )}
+          </button>
+
+          <p className="text-xs text-gray-500 text-center">
+            Your payment is secured by Stripe. We never store your card details.
+          </p>
+        </form>
       </div>
     </div>
   );
@@ -179,6 +396,156 @@ const PayoutsBanner = () => {
           <span>Alex R. - $6,750</span>
           <span>Emma W. - $15,200</span>
         </div>
+      </div>
+    </div>
+  );
+};
+
+// Calendar Modal Component for multiple calendar options
+const CalendarModal = ({ onClose }) => {
+  // Handle escape key press
+  React.useEffect(() => {
+    const handleEscape = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [onClose]);
+
+  const createCalendarEvent = (provider) => {
+    const eventDetails = {
+      title: 'TraderKev Live Trading Session',
+      startDate: new Date(),
+      startTime: '09:30',
+      endTime: '11:30',
+      description: 'Join TraderKev for live futures trading session. Watch expert analysis and real money trades on E-mini futures, NQ, ES, and more.',
+      location: 'https://youtube.com/@traderkev',
+      timezone: 'America/New_York'
+    };
+
+    // Set to next trading day (Monday-Friday)
+    const tomorrow = new Date(eventDetails.startDate);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    while (tomorrow.getDay() === 0 || tomorrow.getDay() === 6) {
+      tomorrow.setDate(tomorrow.getDate() + 1);
+    }
+
+    const year = tomorrow.getFullYear();
+    const month = String(tomorrow.getMonth() + 1).padStart(2, '0');
+    const day = String(tomorrow.getDate()).padStart(2, '0');
+    const startDateTime = `${year}${month}${day}T133000Z`; // 9:30 AM EST
+    const endDateTime = `${year}${month}${day}T153000Z`;   // 11:30 AM EST
+
+    switch (provider) {
+      case 'google':
+        const googleUrl = `https://calendar.google.com/calendar/render?action=TEMPLATE&text=${encodeURIComponent(eventDetails.title)}&dates=${startDateTime}/${endDateTime}&details=${encodeURIComponent(eventDetails.description)}&location=${encodeURIComponent(eventDetails.location)}&recur=RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR`;
+        window.open(googleUrl, '_blank');
+        break;
+      
+      case 'outlook':
+        const outlookUrl = `https://outlook.live.com/calendar/0/deeplink/compose?subject=${encodeURIComponent(eventDetails.title)}&startdt=${year}-${month}-${day}T13:30:00.000Z&enddt=${year}-${month}-${day}T15:30:00.000Z&body=${encodeURIComponent(eventDetails.description)}&location=${encodeURIComponent(eventDetails.location)}`;
+        window.open(outlookUrl, '_blank');
+        break;
+      
+      case 'apple':
+        // Create ICS file for Apple Calendar
+        const icsContent = `BEGIN:VCALENDAR
+VERSION:2.0
+PRODID:-//TraderKev//Trading Reminder//EN
+BEGIN:VEVENT
+DTSTART:${startDateTime}
+DTEND:${endDateTime}
+SUMMARY:${eventDetails.title}
+DESCRIPTION:${eventDetails.description}
+LOCATION:${eventDetails.location}
+RRULE:FREQ=DAILY;BYDAY=MO,TU,WE,TH,FR
+END:VEVENT
+END:VCALENDAR`;
+        
+        const blob = new Blob([icsContent], { type: 'text/calendar' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', 'traderkev-live-session.ics');
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        break;
+      
+      case 'yahoo':
+        const yahooUrl = `https://calendar.yahoo.com/?v=60&view=d&type=20&title=${encodeURIComponent(eventDetails.title)}&st=${year}${month}${day}T133000Z&dur=0200&desc=${encodeURIComponent(eventDetails.description)}&in_loc=${encodeURIComponent(eventDetails.location)}`;
+        window.open(yahooUrl, '_blank');
+        break;
+    }
+    
+    onClose();
+  };
+
+  return (
+    <div 
+      className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) {
+          onClose();
+        }
+      }}
+    >
+      <div className="bg-white rounded-lg p-8 max-w-md w-full relative">
+        <div className="flex justify-between items-center mb-6">
+          <h3 className="text-2xl font-bold text-gray-800">Add to Calendar</h3>
+          <button
+            onClick={onClose}
+            className="text-gray-500 hover:text-gray-700 focus:outline-none p-1"
+            type="button"
+          >
+            <X size={24} />
+          </button>
+        </div>
+        
+        <p className="text-gray-600 mb-6">
+          Set a daily reminder for TraderKev's live trading sessions (Mon-Fri, 9:30-11:30 AM EST)
+        </p>
+        
+        <div className="space-y-3">
+          <button
+            onClick={() => createCalendarEvent('google')}
+            className="w-full bg-blue-600 text-white py-3 px-4 rounded-lg hover:bg-blue-700 transition-colors flex items-center justify-center space-x-2"
+          >
+            <span>📅</span>
+            <span>Google Calendar</span>
+          </button>
+          
+          <button
+            onClick={() => createCalendarEvent('outlook')}
+            className="w-full bg-blue-500 text-white py-3 px-4 rounded-lg hover:bg-blue-600 transition-colors flex items-center justify-center space-x-2"
+          >
+            <span>📅</span>
+            <span>Outlook Calendar</span>
+          </button>
+          
+          <button
+            onClick={() => createCalendarEvent('apple')}
+            className="w-full bg-gray-800 text-white py-3 px-4 rounded-lg hover:bg-gray-900 transition-colors flex items-center justify-center space-x-2"
+          >
+            <span>📅</span>
+            <span>Apple Calendar</span>
+          </button>
+          
+          <button
+            onClick={() => createCalendarEvent('yahoo')}
+            className="w-full bg-purple-600 text-white py-3 px-4 rounded-lg hover:bg-purple-700 transition-colors flex items-center justify-center space-x-2"
+          >
+            <span>📅</span>
+            <span>Yahoo Calendar</span>
+          </button>
+        </div>
+        
+        <p className="text-sm text-gray-500 mt-4 text-center">
+          This will create a recurring reminder for weekdays only
+        </p>
       </div>
     </div>
   );
@@ -699,6 +1066,8 @@ const TraderKevWebsite = () => {
   const [selectedBlogPost, setSelectedBlogPost] = useState(null);
   const [isBlogPostModalOpen, setIsBlogPostModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [paymentSuccess, setPaymentSuccess] = useState(false);
+  const [paymentData, setPaymentData] = useState(null);
   const [scrollProgress, setScrollProgress] = useState(0);
   const [activeSection, setActiveSection] = useState('home');
   const [selectedProof, setSelectedProof] = useState(null);
@@ -710,6 +1079,7 @@ const TraderKevWebsite = () => {
   const [searchTermVideo, setSearchTermVideo] = useState('');
   const [filterFirmProof, setFilterFirmProof] = useState('All'); // New state for proofs filter
   const [reminderSetMessage, setReminderSetMessage] = useState(false);
+  const [showCalendarModal, setShowCalendarModal] = useState(false);
 
   // New state for handling page routing (landing, login, videoLibrary)
   const [currentPage, setCurrentPage] = useState('landing');
@@ -730,6 +1100,29 @@ const TraderKevWebsite = () => {
 
   // Refs for section visibility for scroll-triggered animations
   const sectionRefs = useRef({});
+
+  // Payment handlers
+  const handlePaymentSuccess = (paymentResult) => {
+    setPaymentData(paymentResult);
+    setPaymentSuccess(true);
+    setIsPaymentModalOpen(false);
+    
+    // Show success message
+    alert(`Payment successful! Payment ID: ${paymentResult.paymentIntent.id}`);
+    
+    // You could redirect to a success page or show a success modal here
+    console.log('Payment successful:', paymentResult);
+  };
+
+  const handlePaymentError = (error) => {
+    console.error('Payment failed:', error);
+    // Error is already handled in the PaymentForm component
+  };
+
+  const closePaymentModal = () => {
+    setIsPaymentModalOpen(false);
+  };
+  
   const setSectionRef = useCallback((node, id) => {
     if (node) {
       sectionRefs.current[id] = node;
@@ -1102,8 +1495,7 @@ const TraderKevWebsite = () => {
 
   // Handler for "Set Reminder" button
   const handleSetReminder = useCallback(() => {
-    setReminderSetMessage(true);
-    setTimeout(() => setReminderSetMessage(false), 3000);
+    setShowCalendarModal(true);
   }, []);
 
   // VideoLibraryComponent: The client's private video content area
@@ -1806,57 +2198,145 @@ const TraderKevWebsite = () => {
             <header className={`sticky top-0 z-40 transition-all duration-300 ${scrollY > 100 ? 'bg-white shadow-lg' : 'bg-transparent'}`}>
               <nav className="container mx-auto px-4 py-4">
                 <div className="flex items-center justify-between">
-                  <div className="flex items-center space-x-2">
-                    <TrendingUp className="h-8 w-8 text-blue-600" />
-                    <span className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-green-500 bg-clip-text text-transparent transform hover:scale-105 transition-transform duration-200">
+                  <motion.div 
+                    className="flex items-center space-x-2"
+                    initial={{ opacity: 0, x: -50 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ 
+                      duration: 0.6,
+                      type: "spring",
+                      stiffness: 100,
+                      damping: 15
+                    }}
+                  >
+                    <motion.div
+                      whileHover={{ rotate: 15, scale: 1.1 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    >
+                      <TrendingUp className="h-8 w-8 text-blue-600" />
+                    </motion.div>
+                    <motion.span 
+                      className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-green-500 bg-clip-text text-transparent"
+                      whileHover={{ scale: 1.05 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    >
                       TraderKev
-                    </span>
-                  </div>
+                    </motion.span>
+                  </motion.div>
 
-                  <div className="hidden md:flex items-center space-x-8">
-                    <a href="#home" className={`hover:text-blue-600 transition-colors transform hover:-translate-y-0.5 ${activeSection === 'home' ? 'font-bold text-blue-600' : 'text-gray-700'}`}>Home</a>
-                    <a href="#live-trading" className={`hover:text-blue-600 transition-colors transform hover:-translate-y-0.5 ${activeSection === 'live-trading' ? 'font-bold text-blue-600' : 'text-gray-700'}`}>Live Trading</a>
-                    <a href="#discord" className={`hover:text-blue-600 transition-colors transform hover:-translate-y-0.5 ${activeSection === 'discord' ? 'font-bold text-blue-600' : 'text-gray-700'}`}>Discord</a>
-                    <a href="#mentoring" className={`hover:text-blue-600 transition-colors transform hover:-translate-y-0.5 ${activeSection === 'mentoring' ? 'font-bold text-blue-600' : 'text-gray-700'}`}>Mentoring</a>
-                    <a href="#blog" className={`hover:text-blue-600 transition-colors transform hover:-translate-y-0.5 ${activeSection === 'blog' ? 'font-bold text-blue-600' : 'text-gray-700'}`}>Blog</a>
-                    <a href="#faq" className={`hover:text-blue-600 transition-colors transform hover:-translate-y-0.5 ${activeSection === 'faq' ? 'font-bold text-blue-600' : 'text-gray-700'}`}>FAQ</a>
-                    <a href="#contact" className={`hover:text-blue-600 transition-colors transform hover:-translate-y-0.5 ${activeSection === 'contact' ? 'font-bold text-blue-600' : 'text-gray-700'}`}>Contact</a>
+                  <motion.div 
+                    className="hidden md:flex items-center space-x-8"
+                    initial={{ opacity: 0, y: -20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ 
+                      duration: 0.6,
+                      delay: 0.2,
+                      type: "spring",
+                      stiffness: 100,
+                      damping: 15
+                    }}
+                  >
+                    <motion.a 
+                      href="#home" 
+                      className={`hover:text-blue-600 transition-colors ${activeSection === 'home' ? 'font-bold text-blue-600' : 'text-gray-700'}`}
+                      whileHover={{ y: -2 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    >
+                      Home
+                    </motion.a>
+                    <motion.a 
+                      href="#live-trading" 
+                      className={`hover:text-blue-600 transition-colors ${activeSection === 'live-trading' ? 'font-bold text-blue-600' : 'text-gray-700'}`}
+                      whileHover={{ y: -2 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    >
+                      Live Trading
+                    </motion.a>
+                    <motion.a 
+                      href="#discord" 
+                      className={`hover:text-blue-600 transition-colors ${activeSection === 'discord' ? 'font-bold text-blue-600' : 'text-gray-700'}`}
+                      whileHover={{ y: -2 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    >
+                      Discord
+                    </motion.a>
+                    <motion.a 
+                      href="#mentoring" 
+                      className={`hover:text-blue-600 transition-colors ${activeSection === 'mentoring' ? 'font-bold text-blue-600' : 'text-gray-700'}`}
+                      whileHover={{ y: -2 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    >
+                      Mentoring
+                    </motion.a>
+                    <motion.a 
+                      href="#blog" 
+                      className={`hover:text-blue-600 transition-colors ${activeSection === 'blog' ? 'font-bold text-blue-600' : 'text-gray-700'}`}
+                      whileHover={{ y: -2 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    >
+                      Blog
+                    </motion.a>
+                    <motion.a 
+                      href="#faq" 
+                      className={`hover:text-blue-600 transition-colors ${activeSection === 'faq' ? 'font-bold text-blue-600' : 'text-gray-700'}`}
+                      whileHover={{ y: -2 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    >
+                      FAQ
+                    </motion.a>
+                    <motion.a 
+                      href="#contact" 
+                      className={`hover:text-blue-600 transition-colors ${activeSection === 'contact' ? 'font-bold text-blue-600' : 'text-gray-700'}`}
+                      whileHover={{ y: -2 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    >
+                      Contact
+                    </motion.a>
                     {isLoggedIn ? (
-                      <button
+                      <motion.button
                         onClick={async () => { 
                           await logout(); 
                           setCurrentPage('landing'); 
                         }}
                         className="bg-red-600 text-white px-6 py-2 rounded-lg hover:bg-red-700 transition-colors flex items-center space-x-2 focus:outline-none focus:ring-2 focus:ring-red-500"
+                        whileHover={{ scale: 1.05 }}
+                        whileTap={{ scale: 0.95 }}
+                        transition={{ type: "spring", stiffness: 300, damping: 20 }}
                       >
                         <LogOut size={20} />
                         <span>Logout</span>
-                      </button>
+                      </motion.button>
                     ) : (
                       <div className="flex items-center space-x-3">
-                        <button
+                        <motion.button
                           onClick={() => {
                             setShowSignupForm(true);
                             setCurrentPage('login');
                           }}
                           className="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700 transition-colors text-sm font-medium focus:outline-none focus:ring-2 focus:ring-green-500"
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          transition={{ type: "spring", stiffness: 300, damping: 20 }}
                         >
                           Create Account
-                        </button>
-                        <button
+                        </motion.button>
+                        <motion.button
                           onClick={() => {
                             setShowSignupForm(false);
                             setCurrentPage('login');
                           }}
                           className="bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
                           ref={loginButtonRef}
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
+                          transition={{ type: "spring", stiffness: 300, damping: 20 }}
                         >
                           <User size={20} />
                           <span>Login</span>
-                        </button>
+                        </motion.button>
                       </div>
                     )}
-                  </div>
+                  </motion.div>
 
                   <button
                     onClick={() => setIsMenuOpen(!isMenuOpen)}
@@ -1869,48 +2349,188 @@ const TraderKevWebsite = () => {
               </nav>
             </header>
 
-            <section id="home" ref={node => setSectionRef(node, 'home')} className="relative bg-gradient-to-br from-blue-900 via-blue-800 to-green-600 text-white py-20 animate-fade-in-up">
+            <section id="home" ref={node => setSectionRef(node, 'home')} className="relative bg-gradient-to-br from-blue-900 via-blue-800 to-green-600 text-white py-20">
               <div className="absolute inset-0 bg-black opacity-20"></div>
               <div className="container mx-auto px-4 relative z-10">
                 <div className="max-w-4xl mx-auto text-center">
-                  <h1 className="text-5xl md:text-7xl font-bold mb-6 animate-fade-in-up">
+                  <motion.h1 
+                    className="text-5xl md:text-7xl font-bold mb-6"
+                    initial={{ opacity: 0, y: 50 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ 
+                      duration: 0.8,
+                      type: "spring",
+                      stiffness: 100,
+                      damping: 10
+                    }}
+                  >
                     Master Futures Trading
-                  </h1>
-                  <p className="text-xl md:text-2xl mb-8 opacity-90 animate-slide-in-right">
+                  </motion.h1>
+                  
+                  <motion.p 
+                    className="text-xl md:text-2xl mb-8 opacity-90"
+                    initial={{ opacity: 0, x: 50 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ 
+                      duration: 0.8,
+                      delay: 0.2,
+                      type: "spring",
+                      stiffness: 80,
+                      damping: 12
+                    }}
+                  >
                     Get Funded by Top Prop Firms with Expert Training & 1-on-1 Mentoring
-                  </p>
+                  </motion.p>
 
-                  <div className="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-6 mb-8 animate-fade-in-up" style={{ animationDelay: '0.5s' }}>
-                    <a href="#live-trading" className="bg-red-600 hover:bg-red-700 text-white px-8 py-4 rounded-lg text-lg font-semibold transition-all transform hover:scale-105 flex items-center space-x-3 shadow-lg focus:outline-none focus:ring-2 focus:ring-red-300">
+                  <motion.div 
+                    className="flex flex-col md:flex-row items-center justify-center space-y-4 md:space-y-0 md:space-x-6 mb-8"
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ 
+                      duration: 0.6,
+                      delay: 0.4,
+                      type: "spring",
+                      stiffness: 120,
+                      damping: 15
+                    }}
+                  >
+                    <motion.a 
+                      href="#live-trading" 
+                      className="bg-red-600 hover:bg-red-700 text-white px-8 py-4 rounded-lg text-lg font-semibold transition-all flex items-center space-x-3 shadow-lg focus:outline-none focus:ring-2 focus:ring-red-300"
+                      whileHover={{ 
+                        scale: 1.05,
+                        boxShadow: "0 10px 25px rgba(0,0,0,0.2)"
+                      }}
+                      whileTap={{ scale: 0.95 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    >
                       <Play size={24} />
                       <span>Live Trading - Daily 9:30 AM</span>
-                    </a>
+                    </motion.a>
 
-                    <a href="#discord" className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-4 rounded-lg text-lg font-semibold transition-all transform hover:scale-105 flex items-center space-x-3 shadow-lg focus:outline-none focus:ring-2 focus:ring-purple-300">
+                    <motion.a 
+                      href="#discord" 
+                      className="bg-purple-600 hover:bg-purple-700 text-white px-8 py-4 rounded-lg text-lg font-semibold transition-all flex items-center space-x-3 shadow-lg focus:outline-none focus:ring-2 focus:ring-purple-300"
+                      whileHover={{ 
+                        scale: 1.05,
+                        boxShadow: "0 10px 25px rgba(0,0,0,0.2)"
+                      }}
+                      whileTap={{ scale: 0.95 }}
+                      transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                    >
                       <Users size={24} />
                       <span>Join Discord Community</span>
-                    </a>
-                  </div>
+                    </motion.a>
+                  </motion.div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-3xl mx-auto">
-                    <div className="bg-white bg-opacity-10 backdrop-blur-sm rounded-lg p-6 text-center transform hover:scale-105 transition-transform duration-200">
-                      <Trophy className="h-12 w-12 text-yellow-400 mx-auto mb-4" />
+                  <motion.div 
+                    className="grid grid-cols-1 md:grid-cols-3 gap-8 max-w-3xl mx-auto"
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.8, delay: 0.6 }}
+                  >
+                    <motion.div 
+                      className="bg-white bg-opacity-10 backdrop-blur-sm rounded-lg p-6 text-center"
+                      initial={{ opacity: 0, y: 50 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ 
+                        duration: 0.6,
+                        delay: 0.7,
+                        type: "spring",
+                        stiffness: 100,
+                        damping: 12
+                      }}
+                      whileHover={{ 
+                        scale: 1.05,
+                        y: -5,
+                        boxShadow: "0 15px 30px rgba(0,0,0,0.15)"
+                      }}
+                    >
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ 
+                          duration: 0.5,
+                          delay: 0.9,
+                          type: "spring",
+                          stiffness: 200,
+                          damping: 15
+                        }}
+                      >
+                        <Trophy className="h-12 w-12 text-yellow-400 mx-auto mb-4" />
+                      </motion.div>
                       <h3 className="text-xl font-semibold mb-2">Prop Firm Success</h3>
                       <p className="opacity-90">90% pass rate on funded challenges</p>
-                    </div>
+                    </motion.div>
 
-                    <div className="bg-white bg-opacity-10 backdrop-blur-sm rounded-lg p-6 text-center transform hover:scale-105 transition-transform duration-200">
-                      <Target className="h-12 w-12 text-green-400 mx-auto mb-4" />
+                    <motion.div 
+                      className="bg-white bg-opacity-10 backdrop-blur-sm rounded-lg p-6 text-center"
+                      initial={{ opacity: 0, y: 50 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ 
+                        duration: 0.6,
+                        delay: 0.8,
+                        type: "spring",
+                        stiffness: 100,
+                        damping: 12
+                      }}
+                      whileHover={{ 
+                        scale: 1.05,
+                        y: -5,
+                        boxShadow: "0 15px 30px rgba(0,0,0,0.15)"
+                      }}
+                    >
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ 
+                          duration: 0.5,
+                          delay: 1.0,
+                          type: "spring",
+                          stiffness: 200,
+                          damping: 15
+                        }}
+                      >
+                        <Target className="h-12 w-12 text-green-400 mx-auto mb-4" />
+                      </motion.div>
                       <h3 className="text-xl font-semibold mb-2">Futures Specialist</h3>
                       <p className="opacity-90">Expert in E-mini & commodity futures</p>
-                    </div>
+                    </motion.div>
 
-                    <div className="bg-white bg-opacity-10 backdrop-blur-sm rounded-lg p-6 text-center transform hover:scale-105 transition-transform duration-200">
-                      <Star className="h-12 w-12 text-blue-400 mx-auto mb-4" />
+                    <motion.div 
+                      className="bg-white bg-opacity-10 backdrop-blur-sm rounded-lg p-6 text-center"
+                      initial={{ opacity: 0, y: 50 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ 
+                        duration: 0.6,
+                        delay: 0.9,
+                        type: "spring",
+                        stiffness: 100,
+                        damping: 12
+                      }}
+                      whileHover={{ 
+                        scale: 1.05,
+                        y: -5,
+                        boxShadow: "0 15px 30px rgba(0,0,0,0.15)"
+                      }}
+                    >
+                      <motion.div
+                        initial={{ scale: 0 }}
+                        animate={{ scale: 1 }}
+                        transition={{ 
+                          duration: 0.5,
+                          delay: 1.1,
+                          type: "spring",
+                          stiffness: 200,
+                          damping: 15
+                        }}
+                      >
+                        <Star className="h-12 w-12 text-blue-400 mx-auto mb-4" />
+                      </motion.div>
                       <h3 className="text-xl font-semibold mb-2">1-on-1 Mentoring</h3>
                       <p className="opacity-90">Personal guidance to success</p>
-                    </div>
-                  </div>
+                    </motion.div>
+                  </motion.div>
                 </div>
               </div>
             </section>
@@ -1981,11 +2601,6 @@ const TraderKevWebsite = () => {
                       🔔 SET REMINDER
                     </button>
                   </div>
-                  {reminderSetMessage && (
-                    <div className="mt-6 p-3 bg-green-500 text-white rounded-lg animate-fade-in">
-                      Reminder set successfully!
-                    </div>
-                  )}
                   <p className="mt-6 text-sm opacity-80">
                     📈 Average 15-25 trades per session | 🎯 70%+ win rate | 💰 $500-2000 daily targets
                   </p>
@@ -2262,12 +2877,30 @@ const TraderKevWebsite = () => {
                     <p className="text-3xl font-bold mb-2">$497 <span className="text-xl line-through opacity-60">$997</span></p>
                     <p className="text-lg mb-6">50% OFF - Only 5 Spots Available This Month!</p>
 
-                    <button
+                    <motion.button
                       onClick={() => setIsPaymentModalOpen(true)}
-                      className="bg-yellow-500 hover:bg-yellow-600 text-black px-12 py-4 rounded-lg text-xl font-bold transition-all transform hover:scale-105 shadow-lg focus:outline-none focus:ring-2 focus:ring-yellow-300"
+                      className="bg-yellow-500 hover:bg-yellow-600 text-black px-12 py-4 rounded-lg text-xl font-bold transition-all shadow-lg focus:outline-none focus:ring-2 focus:ring-yellow-300"
+                      whileHover={{ 
+                        scale: 1.05,
+                        boxShadow: "0 20px 40px rgba(234, 179, 8, 0.3)",
+                        y: -2
+                      }}
+                      whileTap={{ scale: 0.95 }}
+                      animate={{ 
+                        y: [0, -3, 0],
+                      }}
+                      transition={{ 
+                        y: {
+                          repeat: Infinity,
+                          duration: 2,
+                          ease: "easeInOut"
+                        },
+                        hover: { type: "spring", stiffness: 300, damping: 20 },
+                        tap: { type: "spring", stiffness: 300, damping: 20 }
+                      }}
                     >
                       🚀 SECURE YOUR SPOT NOW
-                    </button>
+                    </motion.button>
                   </div>
 
                   <div className="flex items-center justify-center space-x-8 text-sm opacity-80">
@@ -2518,119 +3151,483 @@ const TraderKevWebsite = () => {
               </div>
             </section>
 
-            <section id="about" ref={node => setSectionRef(node, 'about')} className="py-20 bg-white animate-fade-in-up">
+            <section id="about" ref={node => setSectionRef(node, 'about')} className="py-20 bg-gradient-to-br from-gray-50 to-blue-50">
               <div className="container mx-auto px-4">
-                <div className="max-w-4xl mx-auto text-center">
-                  <img
-                    src="https://images.unsplash.com/photo-1560472354-b33ff0c44a43?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1000&q=80"
-                    alt="Professional trader at work"
-                    className="w-64 h-64 rounded-full object-cover mb-8 shadow-lg"
-                    onError={(e) => { e.target.onerror = null; e.target.src = `https://placehold.co/640x640/E0E0E0/333333?text=TraderKev`; }}
-                  />
-                  <h2 className="text-4xl md:text-5xl font-bold mb-6">Meet TraderKev</h2>
-                  <p className="text-xl text-gray-600 mb-8">
-                    Professional futures trader with 8+ years of experience. Specializing in E-mini S&P 500,
-                    NASDAQ, and commodity futures. Successfully passed evaluations with multiple prop firms
-                    and currently trading funded accounts totaling over $500K.
-                  </p>
+                <div className="max-w-6xl mx-auto">
+                  {/* Header */}
+                  <motion.div 
+                    className="text-center mb-16"
+                    initial={{ opacity: 0, y: 30 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.8 }}
+                    viewport={{ once: true }}
+                  >
+                    <motion.h2 
+                      className="text-4xl md:text-5xl font-bold mb-6 bg-gradient-to-r from-blue-600 to-green-500 bg-clip-text text-transparent"
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      whileInView={{ opacity: 1, scale: 1 }}
+                      transition={{ duration: 0.6, delay: 0.2 }}
+                      viewport={{ once: true }}
+                    >
+                      Meet TraderKev
+                    </motion.h2>
+                    <motion.p 
+                      className="text-xl text-gray-600 max-w-3xl mx-auto"
+                      initial={{ opacity: 0, y: 20 }}
+                      whileInView={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.6, delay: 0.4 }}
+                      viewport={{ once: true }}
+                    >
+                      From zero to funded trader - discover the journey, expertise, and proven track record that makes TraderKev your trusted guide to trading success.
+                    </motion.p>
+                  </motion.div>
 
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-8 mb-12">
-                    <div className="text-center">
-                      <AnimatedNumber target={500} suffix="+" className="text-3xl font-bold text-blue-600 mb-2" />
-                      <div className="text-gray-600">Students Trained</div>
-                    </div>
-                    <div className="text-center">
-                      <AnimatedNumber target={90} suffix="%" className="text-3xl font-bold text-green-600 mb-2" />
-                      <div className="text-gray-600">Pass Rate</div>
-                    </div>
-                    <div className="text-center">
-                      <AnimatedNumber target={2} prefix="$" suffix="M+" className="text-3xl font-bold text-purple-600 mb-2" />
-                      <div className="text-gray-600">Students Funded</div>
-                    </div>
+                  {/* Main Content Grid */}
+                  <div className="grid lg:grid-cols-2 gap-12 items-center mb-16">
+                    {/* Left: Profile & Story */}
+                    <motion.div 
+                      className="space-y-8"
+                      initial={{ opacity: 0, x: -50 }}
+                      whileInView={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.8 }}
+                      viewport={{ once: true }}
+                    >
+                      {/* Profile Image */}
+                      <div className="relative">
+                        <motion.div 
+                          className="relative overflow-hidden rounded-2xl shadow-2xl"
+                          whileHover={{ scale: 1.02 }}
+                          transition={{ type: "spring", stiffness: 300, damping: 20 }}
+                        >
+                          <img
+                            src="https://images.unsplash.com/photo-1560472354-b33ff0c44a43?ixlib=rb-4.0.3&ixid=M3wxMjA3fDB8MHxwaG90by1wYWdlfHx8fGVufDB8fHx8fA%3D%3D&auto=format&fit=crop&w=1000&q=80"
+                            alt="Professional trader Kevin at work"
+                            className="w-full h-96 object-cover"
+                            onError={(e) => { e.target.onerror = null; e.target.src = `https://placehold.co/640x640/E0E0E0/333333?text=TraderKev`; }}
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent"></div>
+                          <div className="absolute bottom-4 left-4 bg-white/90 backdrop-blur-sm px-4 py-2 rounded-lg">
+                            <div className="flex items-center space-x-2">
+                              <div className="w-3 h-3 bg-green-500 rounded-full animate-pulse"></div>
+                              <span className="text-sm font-semibold text-gray-800">Currently Trading Live</span>
+                            </div>
+                          </div>
+                        </motion.div>
+                        
+                        {/* Floating Achievement Badges */}
+                        <motion.div 
+                          className="absolute -top-4 -right-4 bg-yellow-500 text-black p-3 rounded-full shadow-lg"
+                          animate={{ y: [0, -5, 0] }}
+                          transition={{ repeat: Infinity, duration: 2 }}
+                        >
+                          <Trophy className="w-6 h-6" />
+                        </motion.div>
+                        <motion.div 
+                          className="absolute -bottom-4 -left-4 bg-green-500 text-white p-3 rounded-full shadow-lg"
+                          animate={{ y: [0, 5, 0] }}
+                          transition={{ repeat: Infinity, duration: 2.5 }}
+                        >
+                          <Target className="w-6 h-6" />
+                        </motion.div>
+                      </div>
+
+                      {/* Quick Stats Cards */}
+                      <div className="grid grid-cols-2 gap-4">
+                        <motion.div 
+                          className="bg-white p-4 rounded-xl shadow-lg border border-gray-100"
+                          whileHover={{ y: -5, boxShadow: "0 20px 40px rgba(0,0,0,0.1)" }}
+                          transition={{ type: "spring", stiffness: 300 }}
+                        >
+                          <div className="text-2xl font-bold text-blue-600">8+</div>
+                          <div className="text-sm text-gray-600">Years Trading</div>
+                        </motion.div>
+                        <motion.div 
+                          className="bg-white p-4 rounded-xl shadow-lg border border-gray-100"
+                          whileHover={{ y: -5, boxShadow: "0 20px 40px rgba(0,0,0,0.1)" }}
+                          transition={{ type: "spring", stiffness: 300 }}
+                        >
+                          <div className="text-2xl font-bold text-green-600">$500K+</div>
+                          <div className="text-sm text-gray-600">Funded Capital</div>
+                        </motion.div>
+                      </div>
+                    </motion.div>
+
+                    {/* Right: Detailed Story & Expertise */}
+                    <motion.div 
+                      className="space-y-6"
+                      initial={{ opacity: 0, x: 50 }}
+                      whileInView={{ opacity: 1, x: 0 }}
+                      transition={{ duration: 0.8, delay: 0.2 }}
+                      viewport={{ once: true }}
+                    >
+                      {/* Story */}
+                      <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-100">
+                        <h3 className="text-2xl font-bold mb-4 text-gray-800">The Journey</h3>
+                        <p className="text-gray-600 mb-4">
+                          Started as a complete beginner with $500 and a dream. After countless hours of learning, 
+                          backtesting, and refining strategies, I developed a systematic approach to futures trading 
+                          that consistently generates profits.
+                        </p>
+                        <p className="text-gray-600">
+                          Today, I manage multiple funded accounts and help traders worldwide achieve their funding 
+                          goals through proven strategies and personalized mentoring.
+                        </p>
+                      </div>
+
+                      {/* Specializations */}
+                      <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-100">
+                        <h3 className="text-2xl font-bold mb-4 text-gray-800">Trading Expertise</h3>
+                        <div className="grid grid-cols-1 gap-3">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-2 h-2 bg-blue-500 rounded-full"></div>
+                            <span className="text-gray-700"><strong>E-mini S&P 500 (ES)</strong> - Primary focus with 70%+ win rate</span>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                            <span className="text-gray-700"><strong>NASDAQ (NQ)</strong> - High volatility scalping specialist</span>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <div className="w-2 h-2 bg-purple-500 rounded-full"></div>
+                            <span className="text-gray-700"><strong>Crude Oil (CL)</strong> - Commodity futures expert</span>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <div className="w-2 h-2 bg-orange-500 rounded-full"></div>
+                            <span className="text-gray-700"><strong>Risk Management</strong> - Maximum 1% risk per trade</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Certifications & Achievements */}
+                      <div className="bg-gradient-to-r from-blue-50 to-purple-50 p-6 rounded-xl border border-blue-200">
+                        <h3 className="text-2xl font-bold mb-4 text-gray-800">Achievements & Certifications</h3>
+                        <div className="space-y-3">
+                          <div className="flex items-center space-x-3">
+                            <CheckCircle className="w-5 h-5 text-green-500" />
+                            <span className="text-gray-700">FTMO $100K Challenge - Passed in 8 days</span>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <CheckCircle className="w-5 h-5 text-green-500" />
+                            <span className="text-gray-700">MyForexFunds $200K Account - Currently trading</span>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <CheckCircle className="w-5 h-5 text-green-500" />
+                            <span className="text-gray-700">TopStep $150K Combine - Multiple passes</span>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <CheckCircle className="w-5 h-5 text-green-500" />
+                            <span className="text-gray-700">500+ Students Successfully Funded</span>
+                          </div>
+                        </div>
+                      </div>
+                    </motion.div>
                   </div>
+
+                  {/* Statistics Section */}
+                  <motion.div 
+                    className="bg-white rounded-2xl shadow-xl p-8 border border-gray-100"
+                    initial={{ opacity: 0, y: 50 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.8 }}
+                    viewport={{ once: true }}
+                  >
+                    <h3 className="text-3xl font-bold text-center mb-8 text-gray-800">Track Record & Results</h3>
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
+                      <motion.div 
+                        className="text-center"
+                        whileHover={{ scale: 1.05 }}
+                        transition={{ type: "spring", stiffness: 300 }}
+                      >
+                        <div className="bg-gradient-to-r from-blue-500 to-blue-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <Users className="w-8 h-8 text-white" />
+                        </div>
+                        <AnimatedNumber target={500} suffix="+" className="text-3xl font-bold text-blue-600 mb-2" />
+                        <div className="text-gray-600 font-medium">Students Mentored</div>
+                        <div className="text-sm text-gray-500 mt-1">Worldwide community</div>
+                      </motion.div>
+                      
+                      <motion.div 
+                        className="text-center"
+                        whileHover={{ scale: 1.05 }}
+                        transition={{ type: "spring", stiffness: 300 }}
+                      >
+                        <div className="bg-gradient-to-r from-green-500 to-green-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <Trophy className="w-8 h-8 text-white" />
+                        </div>
+                        <AnimatedNumber target={90} suffix="%" className="text-3xl font-bold text-green-600 mb-2" />
+                        <div className="text-gray-600 font-medium">Pass Rate</div>
+                        <div className="text-sm text-gray-500 mt-1">Prop firm challenges</div>
+                      </motion.div>
+                      
+                      <motion.div 
+                        className="text-center"
+                        whileHover={{ scale: 1.05 }}
+                        transition={{ type: "spring", stiffness: 300 }}
+                      >
+                        <div className="bg-gradient-to-r from-purple-500 to-purple-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <DollarSign className="w-8 h-8 text-white" />
+                        </div>
+                        <AnimatedNumber target={2} prefix="$" suffix="M+" className="text-3xl font-bold text-purple-600 mb-2" />
+                        <div className="text-gray-600 font-medium">Student Funding</div>
+                        <div className="text-sm text-gray-500 mt-1">Total capital secured</div>
+                      </motion.div>
+                      
+                      <motion.div 
+                        className="text-center"
+                        whileHover={{ scale: 1.05 }}
+                        transition={{ type: "spring", stiffness: 300 }}
+                      >
+                        <div className="bg-gradient-to-r from-orange-500 to-orange-600 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                          <BarChart3 className="w-8 h-8 text-white" />
+                        </div>
+                        <AnimatedNumber target={75} suffix="%" className="text-3xl font-bold text-orange-600 mb-2" />
+                        <div className="text-gray-600 font-medium">Win Rate</div>
+                        <div className="text-sm text-gray-500 mt-1">Live trading average</div>
+                      </motion.div>
+                    </div>
+                  </motion.div>
+
+                  {/* Trading Philosophy */}
+                  <motion.div 
+                    className="mt-16 text-center"
+                    initial={{ opacity: 0, y: 30 }}
+                    whileInView={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.8 }}
+                    viewport={{ once: true }}
+                  >
+                    <div className="bg-gradient-to-r from-blue-600 to-green-500 p-8 rounded-2xl text-white">
+                      <h3 className="text-2xl font-bold mb-4">Trading Philosophy</h3>
+                      <p className="text-lg mb-4 opacity-90">
+                        "Success in trading isn't about being right all the time - it's about managing risk, 
+                        staying disciplined, and learning from every trade."
+                      </p>
+                      <p className="text-base opacity-80">
+                        My approach focuses on consistent, profitable strategies rather than get-rich-quick schemes. 
+                        Every student learns proper risk management before any advanced techniques.
+                      </p>
+                    </div>
+                  </motion.div>
                 </div>
               </div>
             </section>
 
             <section id="contact" ref={node => setSectionRef(node, 'contact')} className="py-20 bg-gradient-to-br from-blue-700 to-indigo-800 text-white animate-fade-in-up">
               <div className="container mx-auto px-4">
-                <div className="max-w-3xl mx-auto text-center">
-                  <h2 className="text-4xl md:text-5xl font-bold mb-6">
-                    ✉️ Get In Touch
-                  </h2>
-                  <p className="text-xl mb-8 opacity-90">
-                    Have questions? Send us a message and we'll get back to you shortly.
-                  </p>
-                  <form onSubmit={async (e) => {
-                      e.preventDefault();
-                      setIsContactFormLoading(true);
-                      setContactFormMessage('');
+                <div className="max-w-7xl mx-auto">
+                  <div className="text-center mb-16">
+                    <h2 className="text-4xl md:text-5xl font-bold mb-6">
+                      ✉️ Get In Touch
+                    </h2>
+                    <p className="text-xl mb-8 opacity-90">
+                      Have questions? Send us a message and we'll get back to you shortly.
+                    </p>
+                  </div>
+                  
+                  <div className="grid lg:grid-cols-2 gap-12 items-start">
+                    {/* Contact Form */}
+                    <div className="order-2 lg:order-1">
+                      <div className="bg-white/10 backdrop-blur-sm p-8 rounded-2xl border border-white/20 mb-8">
+                        <h3 className="text-2xl font-bold mb-6 text-white">Send us a Message</h3>
+                        <form onSubmit={async (e) => {
+                            e.preventDefault();
+                            setIsContactFormLoading(true);
+                            setContactFormMessage('');
 
-                      const name = e.target.name.value;
-                      const email = e.target['email-contact'].value;
-                      const message = e.target.message.value;
+                            const name = e.target.name.value;
+                            const email = e.target['email-contact'].value;
+                            const message = e.target.message.value;
 
-                      if (!name || !email || !message) {
-                          setContactFormMessage('Please fill in all fields.');
-                          setIsContactFormLoading(false);
-                          return;
-                      }
-                      if (!/\S+@\S+\.\S+/.test(email)) {
-                          setContactFormMessage('Please enter a valid email address.');
-                          setIsContactFormLoading(false);
-                          return;
-                      }
+                            if (!name || !email || !message) {
+                                setContactFormMessage('Please fill in all fields.');
+                                setIsContactFormLoading(false);
+                                return;
+                            }
+                            if (!/\S+@\S+\.\S+/.test(email)) {
+                                setContactFormMessage('Please enter a valid email address.');
+                                setIsContactFormLoading(false);
+                                return;
+                            }
 
-                      try {
-                          const response = await fetch('/api/sendEmail', {
-                              method: 'POST',
-                              headers: {
-                                  'Content-Type': 'application/json',
-                              },
-                              body: JSON.stringify({ name, email, message }),
-                          });
+                            try {
+                                // Simple EmailJS implementation with direct values
+                                const serviceID = 'service_sbwdmq9';
+                                const templateID = 'template_fxxzwsa';
+                                const publicKey = 'VigwdRl-HGU8A34Rg';
 
-                          const result = await response.json();
+                                console.log('Starting EmailJS send with config:', { serviceID, templateID });
 
-                          if (response.ok) {
-                              setContactFormMessage('Your message has been sent successfully!');
-                              e.target.reset();
-                          } else {
-                              setContactFormMessage(`Failed to send message: ${result.error || 'Unknown error'}`);
-                          }
-                      } catch (error) {
-                          console.error('Error submitting contact form:', error);
-                          setContactFormMessage('An error occurred while sending your message. Please try again later.');
-                      } finally {
-                          setIsContactFormLoading(false);
-                          setTimeout(() => setContactFormMessage(''), 5000);
-                      }
-                  }} className="bg-white p-8 rounded-lg shadow-xl text-left space-y-6">
-                    <div>
-                      <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">Your Name</label>
-                      <input type="text" id="name" name="name" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800" placeholder="John Doe" />
+                                // Initialize EmailJS
+                                if (typeof emailjs !== 'undefined' && emailjs.init) {
+                                    emailjs.init(publicKey);
+                                }
+
+                                // Simplified template parameters matching most common EmailJS formats
+                                const templateParams = {
+                                    user_name: name,
+                                    user_email: email,
+                                    user_message: message,
+                                    to_name: 'TraderKev'
+                                };
+
+                                console.log('Template params:', templateParams);
+
+                                // Send email using EmailJS with simplified error handling
+                                await emailjs.send(serviceID, templateID, templateParams)
+                                    .then((response) => {
+                                        console.log('EmailJS SUCCESS!', response.status, response.text);
+                                        setContactFormMessage('Your message has been sent successfully! We\'ll get back to you soon.');
+                                        e.target.reset();
+                                    })
+                                    .catch((error) => {
+                                        console.error('EmailJS FAILED...', error);
+                                        
+                                        // Try alternative template parameter format
+                                        const altTemplateParams = {
+                                            name: name,
+                                            email: email,
+                                            message: message,
+                                            reply_to: email
+                                        };
+                                        
+                                        console.log('Trying alternative template params:', altTemplateParams);
+                                        
+                                        return emailjs.send(serviceID, templateID, altTemplateParams);
+                                    })
+                                    .then((response) => {
+                                        if (response) {
+                                            console.log('Alternative format SUCCESS!', response.status, response.text);
+                                            setContactFormMessage('Your message has been sent successfully! We\'ll get back to you soon.');
+                                            e.target.reset();
+                                        }
+                                    })
+                                    .catch((finalError) => {
+                                        console.error('Both formats FAILED:', finalError);
+                                        setContactFormMessage('Failed to send message. Please try contacting us directly.');
+                                    });
+
+                            } catch (error) {
+                                console.error('Form submission error:', error);
+                                setContactFormMessage('An error occurred while sending your message. Please try again later.');
+                            } finally {
+                                setIsContactFormLoading(false);
+                                setTimeout(() => setContactFormMessage(''), 5000);
+                            }
+                        }} className="space-y-6">
+                          <div>
+                            <label htmlFor="name" className="block text-sm font-medium text-white mb-2">Your Name</label>
+                            <input type="text" id="name" name="name" className="w-full p-3 border border-white/30 rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-white/10 backdrop-blur-sm text-white placeholder-white/70" placeholder="John Doe" />
+                          </div>
+                          <div>
+                            <label htmlFor="email-contact" className="block text-sm font-medium text-white mb-2">Your Email</label>
+                            <input type="email" id="email-contact" name="email-contact" className="w-full p-3 border border-white/30 rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-white/10 backdrop-blur-sm text-white placeholder-white/70" placeholder="john.doe@example.com" />
+                          </div>
+                          <div>
+                            <label htmlFor="message" className="block text-sm font-medium text-white mb-2">Your Message</label>
+                            <textarea id="message" name="message" rows="5" className="w-full p-3 border border-white/30 rounded-lg focus:ring-2 focus:ring-blue-400 focus:border-transparent bg-white/10 backdrop-blur-sm text-white placeholder-white/70" placeholder="I'd like to know more about..."></textarea>
+                          </div>
+                          <button
+                            type="submit"
+                            className="w-full bg-white text-blue-700 py-3 rounded-lg hover:bg-blue-50 transition-colors font-semibold shadow-md focus:outline-none focus:ring-2 focus:ring-white disabled:opacity-50 disabled:cursor-not-allowed"
+                            disabled={isContactFormLoading}
+                          >
+                            {isContactFormLoading ? 'Sending...' : 'Send Message'}
+                          </button>
+                          {contactFormMessage && (
+                            <p className={`mt-4 text-center text-sm animate-fade-in ${contactFormMessage.includes('successfully') ? 'text-green-300' : 'text-red-300'}`}>
+                              {contactFormMessage}
+                            </p>
+                          )}
+                        </form>
+                      </div>
+                      
+                      {/* Contact Information */}
+                      <div className="bg-white/10 backdrop-blur-sm p-8 rounded-2xl border border-white/20">
+                        <h3 className="text-2xl font-bold mb-6 text-white">Contact Information</h3>
+                        <div className="space-y-4">
+                          <div className="flex items-center space-x-3">
+                            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                              <Mail size={20} className="text-white" />
+                            </div>
+                            <div>
+                              <p className="text-white/80 text-sm">Email</p>
+                              <p className="text-white font-medium">contact@traderkev.com</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                              <Phone size={20} className="text-white" />
+                            </div>
+                            <div>
+                              <p className="text-white/80 text-sm">Phone</p>
+                              <p className="text-white font-medium">+1 (555) 123-4567</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                              <MapPin size={20} className="text-white" />
+                            </div>
+                            <div>
+                              <p className="text-white/80 text-sm">Location</p>
+                              <p className="text-white font-medium">New York, NY</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center space-x-3">
+                            <div className="w-10 h-10 bg-white/20 rounded-full flex items-center justify-center">
+                              <Clock size={20} className="text-white" />
+                            </div>
+                            <div>
+                              <p className="text-white/80 text-sm">Business Hours</p>
+                              <p className="text-white font-medium">Mon-Fri: 9AM-6PM EST</p>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label htmlFor="email-contact" className="block text-sm font-medium text-gray-700 mb-2">Your Email</label>
-                      <input type="email" id="email-contact" name="email-contact" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800" placeholder="john.doe@example.com" />
+                    
+                    {/* Interactive Map */}
+                    <div className="order-1 lg:order-2">
+                      <div className="bg-white/10 backdrop-blur-sm p-8 rounded-2xl border border-white/20">
+                        <h3 className="text-2xl font-bold mb-6 text-white">Our Location</h3>
+                        <div className="relative">
+                          <div className="bg-gradient-to-br from-gray-800 to-gray-900 rounded-lg overflow-hidden shadow-2xl" style={{height: '400px'}}>
+                            <iframe
+                              src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d193595.15830869428!2d-74.119763973046!3d40.69766374874431!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x89c24fa5d33f083b%3A0xc80b8f06e177fe62!2sNew%20York%2C%20NY%2C%20USA!5e0!3m2!1sen!2sus!4v1641234567890!5m2!1sen!2sus"
+                              width="100%"
+                              height="100%"
+                              style={{border: 0}}
+                              allowFullScreen=""
+                              loading="lazy"
+                              referrerPolicy="no-referrer-when-downgrade"
+                              title="TraderKev Location Map"
+                            ></iframe>
+                          </div>
+                          <div className="absolute top-4 right-4 bg-blue-600 text-white px-3 py-1 rounded-full text-sm font-medium">
+                            📍 Trading Hub
+                          </div>
+                        </div>
+                        
+                        <div className="mt-6 p-4 bg-white/5 rounded-lg border border-white/10">
+                          <p className="text-white/90 text-sm mb-2">
+                            <strong>Financial District, New York</strong>
+                          </p>
+                          <p className="text-white/70 text-sm">
+                            Located in the heart of the financial world, our trading operations center provides
+                            real-time market access and professional trading education.
+                          </p>
+                        </div>
+                        
+                        <div className="mt-6 grid grid-cols-2 gap-4">
+                          <div className="text-center p-3 bg-white/5 rounded-lg border border-white/10">
+                            <div className="text-2xl font-bold text-white">24/7</div>
+                            <div className="text-white/70 text-sm">Market Access</div>
+                          </div>
+                          <div className="text-center p-3 bg-white/5 rounded-lg border border-white/10">
+                            <div className="text-2xl font-bold text-white">Live</div>
+                            <div className="text-white/70 text-sm">Trading Floor</div>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div>
-                      <label htmlFor="message" className="block text-sm font-medium text-gray-700 mb-2">Your Message</label>
-                      <textarea id="message" name="message" rows="5" className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent text-gray-800" placeholder="I'd like to know more about..."></textarea>
-                    </div>
-                    <button
-                      type="submit"
-                      className="w-full bg-blue-600 text-white py-3 rounded-lg hover:bg-blue-700 transition-colors font-semibold shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={isContactFormLoading}
-                    >
-                      {isContactFormLoading ? 'Sending...' : 'Send Message'}
-                    </button>
-                    {contactFormMessage && (
-                      <p className={`mt-4 text-center text-sm animate-fade-in ${contactFormMessage.includes('successfully') ? 'text-green-300' : 'text-red-300'}`}>
-                        {contactFormMessage}
-                      </p>
-                    )}
-                  </form>
+                  </div>
                 </div>
               </div>
             </section>
@@ -2812,12 +3809,23 @@ const TraderKevWebsite = () => {
       {renderContent()}
 
       {/* Modals and floating components (always rendered on top) */}
-      {isCalendarModalOpen && <CalendarModal />}
+      {showCalendarModal && (
+        <CalendarModal 
+          onClose={() => setShowCalendarModal(false)} 
+        />
+      )}
       {isBlogPostModalOpen && selectedBlogPost && (
         <BlogPostModal blogPost={selectedBlogPost} onClose={() => setIsBlogPostModalOpen(false)} />
       )}
       {isPaymentModalOpen && (
-        <PaymentModal onClose={() => setIsPaymentModalOpen(false)} />
+        <Elements stripe={stripePromise}>
+          <PaymentForm 
+            onSuccess={handlePaymentSuccess}
+            onError={handlePaymentError}
+            onClose={closePaymentModal}
+            customerInfo={{}} // You can pre-fill with user data if available
+          />
+        </Elements>
       )}
       {isCertificateModalOpen && selectedProof && (
         <CertificateModal proof={selectedProof} onClose={() => setIsCertificateModalOpen(false)} />
